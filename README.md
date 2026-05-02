@@ -690,5 +690,58 @@ GO
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/1df2ff2f-07b9-4a5d-99b6-50c4c894ce7d" />
 
 
+## Nếu vẫn tìm được cách dùng SQL để giải quyết vấn đề mà ko cần CURSOR: thử nghĩ bài toán khác, mà chỉ CURSOR mới giải quyết được, còn SQL rất khó giải quyết đc (theo logic suy nghĩ của em)
+
+Bài toán: Tự động Backup từng Database riêng biệt hoặc Xuất file hàng loạt
+Giả sử trong SQL Server của Kiên không chỉ có 1 Database mà có 50 Database cho 50 lớp học khác nhau. Kiên cần:
+
+Duyệt qua danh sách 50 Database đó.
+
+Với mỗi Database, thực hiện lệnh BACKUP DATABASE... ra một đường dẫn ổ cứng với tên file tương ứng.
+
+Tại sao SQL thuần (SELECT/UPDATE) không làm được?
+Lệnh BACKUP hoặc các lệnh cấu hình hệ thống (như ALTER DATABASE, DBCC CHECKDB) chỉ nhận tên Database dưới dạng chuỗi cứng (Literal string), nó không cho phép Kiên viết kiểu:
+BACKUP DATABASE (SELECT Name FROM sys.databases) ... -> Lỗi ngay lập tức.
+
+### Logic giải quyết bằng CURSOR (Duy nhất và thuyết phục)
+Kiên phải dùng Cursor để bốc từng cái "Tên Database" ra, gán vào một biến, sau đó dùng SQL Động (Dynamic SQL) để thực thi lệnh Backup đó.
+
+```sql
+DECLARE @DBName NVARCHAR(100);
+DECLARE @Path NVARCHAR(200);
+DECLARE @SQL NVARCHAR(MAX);
+
+-- Khai báo Cursor duyệt danh sách các Database người dùng tạo
+DECLARE cur_Backup CURSOR FOR 
+    SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb');
+
+OPEN cur_Backup;
+FETCH NEXT FROM cur_Backup INTO @DBName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    -- Xây dựng câu lệnh Backup động cho từng DB
+    SET @Path = 'D:\Backups\' + @DBName + '.bak';
+    SET @SQL = 'BACKUP DATABASE [' + @DBName + '] TO DISK = ''' + @Path + '''';
+    
+    -- Thực thi lệnh (Điều mà SQL tập hợp không thể làm hàng loạt trong 1 câu lệnh)
+    PRINT N'Đang Backup Database: ' + @DBName;
+    -- EXEC sp_executesql @SQL; -- (Chỉ chạy khi Kiên có ổ D thực sự nhé)
+
+    FETCH NEXT FROM cur_Backup INTO @DBName;
+END;
+
+CLOSE cur_Backup;
+DEALLOCATE cur_Backup;
+```
+
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/1f76bfab-b101-4b2f-9a6d-24660558a206" />
+
+### Tại sao trường hợp này chỉ CURSOR mới giải quyết được?
+Tính tuần tự bắt buộc: Hệ thống không thể Backup 100 Database cùng 1 tích tắc (nó sẽ làm treo ổ cứng). Bạn cần Cursor để "xếp hàng" cho chúng: Xong cái này mới đến cái kia.
+
+Lệnh không hỗ trợ Tập hợp: Các lệnh như BACKUP, RESTORE, KILL (ngắt kết nối), hoặc gọi một Store Procedure khác cho từng dòng dữ liệu... không thể lồng vào trong một câu lệnh SELECT thông thường.
+
+Xử lý bên ngoài SQL: Khi cần tương tác với các đối tượng bên ngoài (File hệ thống, quyền Server) dựa trên danh sách trong bảng, Cursor là "cây cầu" duy nhất.
 
 
