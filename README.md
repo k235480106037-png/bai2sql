@@ -595,30 +595,6 @@ WHERE [MaSinhVien] = 'K235480106037';
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/d975efc6-4d21-426c-9544-33936f5b2ca2" />
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ### Nhận xét cuối cùng 
 Về tính thực tế: Trigger rất mạnh mẽ trong việc đảm bảo tính đồng bộ dữ liệu tự động (như việc tự tạo hồ sơ ở bảng B khi bảng A có dữ liệu mới).
 
@@ -630,3 +606,89 @@ Về lỗi vòng lặp (Recursive Trigger): Việc thiết kế các Trigger tá
 - Sử dụng Store Procedure để xử lý logic tuần tự thay vì dùng Trigger nếu nghiệp vụ quá phức tạp.
 
 - Nếu bắt buộc phải dùng, cần sử dụng hàm TRIGGER_NESTLEVEL() để kiểm tra và ngắt vòng lặp kịp thời.
+
+
+# Phần 5: Cursor và Duyệt dữ liệu
+
+## Viết một đoạn script sử dụng CURSOR để duyệt qua danh sách của 1 câu lệnh SQL dạng SELECT, duyệt qua từng bản ghi, xử lý riêng từng bản ghi (THEO LOGIC SV TỰ ĐẶT RA: SAO CHO HỢP LÝ VÀ THUYẾT PHỤC)
+
+Trong SQL, Cursor giống như một vòng lặp for trong lập trình (C#, Java), cho phép ta duyệt qua từng dòng một của kết quả SELECT để xử lý những logic mà một câu lệnh SQL thuần túy khó làm được.
+1. Ý tưởng logic: Tự động gửi thông báo học tập
+2. Kịch bản: Kiên cần duyệt qua danh sách tất cả sinh viên.
+3. Logic xử lý: Với mỗi sinh viên, ta sẽ kiểm tra điểm số:
+4. Nếu điểm $\ge 5.0$: In ra lời chúc mừng kèm tên sinh viên.
+5. Nếu điểm $< 5.0$: In ra lời nhắc nhở yêu cầu sinh viên ôn tập lại.
+6. Mục tiêu: Mô phỏng hệ thống gửi tin nhắn cá nhân hóa cho từng người dựa trên kết quả học tập.
+
+```sql
+GO
+-- 1. Khai báo các biến để chứa dữ liệu từng dòng
+DECLARE @TenSV NVARCHAR(100);
+DECLARE @Diem FLOAT;
+
+-- 2. Khai báo Cursor để duyệt danh sách sinh viên và điểm
+DECLARE cur_ThongBaoHocTap CURSOR FOR
+    SELECT sv.[HoTen], ISNULL(kq.[DiemTrungBinh], 0)
+    FROM [HoSoSinhVien] sv
+    LEFT JOIN [KetQuaHocTap] kq ON sv.[MaSinhVien] = kq.[MaSinhVien];
+
+-- 3. Mở Cursor
+OPEN cur_ThongBaoHocTap;
+
+-- 4. Lấy dòng dữ liệu đầu tiên
+FETCH NEXT FROM cur_ThongBaoHocTap INTO @TenSV, @Diem;
+
+-- 5. Vòng lặp duyệt qua từng bản ghi cho đến khi hết (@@FETCH_STATUS = 0)
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    -- Logic xử lý riêng cho từng bản ghi
+    IF @Diem >= 5.0
+        PRINT N'CHÚC MỪNG: Sinh viên [' + @TenSV + N'] đã đạt môn với điểm số: ' + CAST(@Diem AS NVARCHAR(5));
+    ELSE
+        PRINT N'CẢNH BÁO: Sinh viên [' + @TenSV + N'] cần chú ý ôn tập. Điểm hiện tại: ' + CAST(@Diem AS NVARCHAR(5));
+
+    -- Lấy dòng dữ liệu tiếp theo
+    FETCH NEXT FROM cur_ThongBaoHocTap INTO @TenSV, @Diem;
+END;
+
+-- 6. Đóng và giải phóng Cursor
+CLOSE cur_ThongBaoHocTap;
+DEALLOCATE cur_ThongBaoHocTap;
+GO
+```
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/9721ee3d-c8da-43a2-9722-da9544c0f8d0" />
+
+## Tìm cách không sử dụng CURSOR để giải quyết bài toán mà em đã dùng CURSOR mới giải quyết được ở trên. thử so sánh tốc độ giữa có dùng cursor và không dùng cursor (nếu cùng kết quả) thì thời gian xử lý cái nào nhanh hơn, cần ảnh chụp màn hình minh chứng.
+
+### Giải pháp không sử dụng CURSOR (Dùng SELECT thuần túy)
+Thay vì duyệt từng dòng và dùng IF...ELSE, chúng ta sử dụng biểu thức CASE WHEN. Đây là cách tiếp cận Set-based (xử lý cả bảng cùng lúc).
+
+```
+-- Cách tiếp cận tập hợp (Không dùng Cursor)
+SELECT 
+    sv.[HoTen],
+    kq.[DiemTrungBinh],
+    CASE 
+        WHEN ISNULL(kq.[DiemTrungBinh], 0) >= 5.0 
+        THEN N'CHÚC MỪNG: Sinh viên [' + sv.[HoTen] + N'] đã đạt môn.'
+        ELSE N'CẢNH BÁO: Sinh viên [' + sv.[HoTen] + N'] cần chú ý ôn tập.'
+    END AS [ThongBao]
+FROM [HoSoSinhVien] sv
+LEFT JOIN [KetQuaHocTap] kq ON sv.[MaSinhVien] = kq.[MaSinhVien];
+```
+
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/a0f6b8a3-dc74-42a0-9527-df813b5e1e8e" />
+
+### So sánh tốc độ xử lý
+Để so sánh chính xác, hãy bật tính năng đo thời gian và tài nguyên của SQL Server bằng hai câu lệnh này trước khi chạy:
+
+```sql
+SET STATISTICS TIME ON;
+SET STATISTICS IO ON;
+GO
+```
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/1df2ff2f-07b9-4a5d-99b6-50c4c894ce7d" />
+
+
+
+
